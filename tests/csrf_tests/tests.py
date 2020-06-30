@@ -7,7 +7,7 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import (
     CSRF_SESSION_KEY, CSRF_TOKEN_LENGTH, REASON_BAD_TOKEN,
     REASON_NO_CSRF_COOKIE, CsrfViewMiddleware,
-    _compare_salted_tokens as equivalent_tokens, get_token,
+    _compare_masked_tokens as equivalent_tokens, get_token,
 )
 from django.test import SimpleTestCase, override_settings
 from django.views.decorators.csrf import csrf_exempt, requires_csrf_token
@@ -64,7 +64,7 @@ class CsrfViewMiddlewareTestMixin:
         match = re.search('name="csrfmiddlewaretoken" value="(.*?)"', text)
         csrf_token = csrf_id or self._csrf_id
         self.assertTrue(
-            match and equivalent_tokens(csrf_token, match.group(1)),
+            match and equivalent_tokens(csrf_token, match[1]),
             "Could not find csrfmiddlewaretoken to match %s" % csrf_token
         )
 

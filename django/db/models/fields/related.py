@@ -133,7 +133,7 @@ class RelatedField(FieldCacheMixin, Field):
             errors.append(
                 checks.Error(
                     "Reverse query name '%s' must not end with an underscore."
-                    % (rel_query_name,),
+                    % rel_query_name,
                     hint=("Add or change a related_name or related_query_name "
                           "argument for this field."),
                     obj=self,
@@ -528,6 +528,10 @@ class ForeignObject(RelatedField):
             frozenset(ut)
             for ut in self.remote_field.model._meta.unique_together
         })
+        unique_foreign_fields.update({
+            frozenset(uc.fields)
+            for uc in self.remote_field.model._meta.total_unique_constraints
+        })
         foreign_fields = {f.name for f in self.foreign_related_fields}
         has_unique_constraint = any(u <= foreign_fields for u in unique_foreign_fields)
 
@@ -541,8 +545,10 @@ class ForeignObject(RelatedField):
                     "No subset of the fields %s on model '%s' is unique."
                     % (field_combination, model_name),
                     hint=(
-                        "Add unique=True on any of those fields or add at "
-                        "least a subset of them to a unique_together constraint."
+                        'Mark a single field as unique=True or add a set of '
+                        'fields to a unique constraint (via unique_together '
+                        'or a UniqueConstraint (without condition) in the '
+                        'model Meta.constraints).'
                     ),
                     obj=self,
                     id='fields.E310',
@@ -553,8 +559,13 @@ class ForeignObject(RelatedField):
             model_name = self.remote_field.model.__name__
             return [
                 checks.Error(
-                    "'%s.%s' must set unique=True because it is referenced by "
+                    "'%s.%s' must be unique because it is referenced by "
                     "a foreign key." % (model_name, field_name),
+                    hint=(
+                        'Add unique=True to this field or add a '
+                        'UniqueConstraint (without condition) in the model '
+                        'Meta.constraints.'
+                    ),
                     obj=self,
                     id='fields.E311',
                 )
@@ -570,14 +581,14 @@ class ForeignObject(RelatedField):
 
         if self.remote_field.parent_link:
             kwargs['parent_link'] = self.remote_field.parent_link
-        # Work out string form of "to"
         if isinstance(self.remote_field.model, str):
-            kwargs['to'] = self.remote_field.model
+            if '.' in self.remote_field.model:
+                app_label, model_name = self.remote_field.model.split('.')
+                kwargs['to'] = '%s.%s' % (app_label, model_name.lower())
+            else:
+                kwargs['to'] = self.remote_field.model.lower()
         else:
-            kwargs['to'] = "%s.%s" % (
-                self.remote_field.model._meta.app_label,
-                self.remote_field.model._meta.object_name,
-            )
+            kwargs['to'] = self.remote_field.model._meta.label_lower
         # If swappable is True, then see if we're actually pointing to the target
         # of a swap.
         swappable_setting = self.swappable_setting
@@ -907,7 +918,7 @@ class ForeignKey(ForeignObject):
             return
 
         using = router.db_for_read(self.remote_field.model, instance=model_instance)
-        qs = self.remote_field.model._default_manager.using(using).filter(
+        qs = self.remote_field.model._base_manager.using(using).filter(
             **{self.remote_field.field_name: value}
         )
         qs = qs.complex_filter(self.get_limit_choices_to())
@@ -1298,7 +1309,7 @@ class ManyToManyField(RelatedField):
                              "through_fields keyword argument.") % (self, from_model_name),
                             hint=(
                                 'If you want to create a recursive relationship, '
-                                'use ForeignKey("%s", symmetrical=False, through="%s").'
+                                'use ManyToManyField("%s", through="%s").'
                             ) % (
                                 RECURSIVE_RELATIONSHIP_CONSTANT,
                                 relationship_model_name,
@@ -1318,7 +1329,7 @@ class ManyToManyField(RelatedField):
                             "through_fields keyword argument." % (self, to_model_name),
                             hint=(
                                 'If you want to create a recursive relationship, '
-                                'use ForeignKey("%s", symmetrical=False, through="%s").'
+                                'use ManyToManyField("%s", through="%s").'
                             ) % (
                                 RECURSIVE_RELATIONSHIP_CONSTANT,
                                 relationship_model_name,
